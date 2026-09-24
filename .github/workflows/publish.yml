@@ -1,0 +1,59 @@
+# Publish to pypi.org on a GitHub Release, via TRUSTED PUBLISHING.
+#
+# No API token exists anywhere: PyPI is configured to trust this repository +
+# workflow filename, and the `id-token: write` permission below lets the job
+# mint a short-lived OIDC credential at publish time. Renaming this file or the
+# `pypi` environment breaks that trust relationship — update the publisher on
+# PyPI first if either has to change.
+#
+# One-time setup on pypi.org (Your projects → Publishing → Add a pending
+# publisher): owner `mikko-ahonen`, repository `immunis`, workflow
+# `publish.yml`, environment `pypi`.
+name: publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  # Tests gate the upload: a release is not a reason to skip them.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: pytest
+
+  build-and-publish:
+    needs: [test]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write        # required for trusted publishing; nothing else
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The release tag is the version. Stamped into pyproject.toml here rather
+      # than committed, so the tag and the wheel cannot disagree.
+      - name: Stamp version from the release tag
+        run: |
+          set -eu
+          VER="${GITHUB_REF_NAME#v}"
+          case "$VER" in
+            [0-9]*) ;;
+            *) echo "release tag '$GITHUB_REF_NAME' is not a version" >&2; exit 1 ;;
+          esac
+          sed -i -E "s/^version = \"[^\"]*\"/version = \"${VER}\"/" pyproject.toml
+          echo "publishing immunis ${VER}"
+
+      - run: pip install --upgrade build && python -m build
+      - uses: pypa/gh-action-pypi-publish@release/v1

@@ -1,0 +1,59 @@
+# immunis — find a Python repository's dependency-confusion exposure.
+#
+# Public on purpose. The checks here are about how pip resolves across indexes,
+# which is nobody's private business; the policy about WHICH distributions are
+# private, and which scans a pipeline owes, is configuration supplied by the
+# repository being scanned.
+#
+# Published to pypi.org from GitHub Actions via trusted publishing (OIDC), so
+# no API token exists at rest anywhere.
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "immunis"
+version = "0.0.0"
+description = "Find a Python repository's dependency-confusion exposure"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Mikko Ahonen" }]
+keywords = [
+    "security", "supply-chain", "dependency-confusion", "pip", "packaging",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+]
+# No runtime dependencies, and this is a security property rather than taste.
+# A scanner is often installed in CI with the private index as the ONLY index
+# in scope (`pip install --index-url <private> --no-deps immunis`) precisely so
+# that no public package can substitute itself for the tool that checks for
+# substitution. A dependency here would force --extra-index-url back into that
+# install line. TOML config is read with stdlib tomllib.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+immunis = "immunis.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/mikko-ahonen/immunis"
+Source = "https://github.com/mikko-ahonen/immunis"
+Issues = "https://github.com/mikko-ahonen/immunis/issues"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
