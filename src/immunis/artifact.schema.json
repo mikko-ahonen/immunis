@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://immunis.dev/schema/artifact-1.schema.json",
   "title": "immunis scan artifact",
-  "description": "What the sensor emits and ingest validates (facts.md §2). Version 1.1. Within a major, changes only add: a consumer validating an artifact of a newer minor than it knows validates against its latest known minor and ignores unknown kinds, fields and tags. This schema is strict for the version it describes.",
+  "description": "What the sensor emits and ingest validates (facts.md §2). Version 1.2. Within a major, changes only add: a consumer validating an artifact of a newer minor than it knows validates against its latest known minor and ignores unknown kinds, fields and tags. This schema is strict for the version it describes.",
   "type": "object",
   "properties": {
     "schema_version": {
@@ -340,6 +340,8 @@
                 "items": {
                   "enum": [
                     "generated",
+                    "hand-edited",
+                    "listed",
                     "tracked",
                     "vendored"
                   ]
@@ -373,6 +375,10 @@
                   },
                   "executable": {
                     "type": "boolean"
+                  },
+                  "listed_sha256": {
+                    "type": "string",
+                    "description": "digest the generated-file manifest lists for this path"
                   }
                 },
                 "required": [
@@ -381,6 +387,66 @@
                   "sha256",
                   "kind",
                   "executable"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "generated_manifest": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "The generated-file manifest the repository carries, when configured: a {path: sha256} listing written by whatever generates files into the repository. Absence is legible.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^manifest:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "incomplete"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "format": {
+                    "enum": [
+                      "json",
+                      "sha256sum"
+                    ]
+                  },
+                  "entries": {
+                    "type": "integer"
+                  },
+                  "missing": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 1000,
+                    "description": "listed paths that do not exist in the checkout"
+                  }
+                },
+                "required": [
+                  "path",
+                  "format",
+                  "entries",
+                  "missing"
                 ],
                 "additionalProperties": false
               }
@@ -613,6 +679,64 @@
             "additionalProperties": false
           }
         },
+        "workflow_job": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "One per job of a workflow, with its needs graph.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^job:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "deploy",
+                    "publish",
+                    "test"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "workflow_path": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "runs_on": {
+                    "type": "string"
+                  },
+                  "needs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 1000,
+                    "description": "job names this job needs"
+                  }
+                },
+                "required": [
+                  "workflow_path",
+                  "name",
+                  "needs"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
         "workflow_step": {
           "type": "array",
           "items": {
@@ -628,7 +752,8 @@
                 "items": {
                   "enum": [
                     "disabled",
-                    "scanner"
+                    "scanner",
+                    "soft-fail"
                   ]
                 },
                 "uniqueItems": true
@@ -662,6 +787,10 @@
                   "enabled": {
                     "type": "boolean",
                     "description": "not commented out, no `if: false`"
+                  },
+                  "continue_on_error": {
+                    "type": "boolean",
+                    "description": "the step may fail without failing the job"
                   }
                 },
                 "required": [
@@ -669,7 +798,8 @@
                   "job",
                   "index",
                   "name",
-                  "enabled"
+                  "enabled",
+                  "continue_on_error"
                 ],
                 "additionalProperties": false
               }
@@ -1345,6 +1475,8 @@
             "enum": [
               "declared_in",
               "part_of",
+              "in_job",
+              "needs",
               "located_in",
               "found_by"
             ]

@@ -47,6 +47,12 @@ class Config:
     fail_on: str | None = None
     # Paths never walked, on top of the built-in vendor/build directories.
     exclude: tuple[str, ...] = ()
+    # A generated-file manifest the repository carries: a JSON object of
+    # {path: sha256}, or a sha256sum-format text file. The sensor records each
+    # listed file's listed digest next to its actual one, so a hand-edited
+    # generated file is a fact. Whatever generates files into the repository
+    # writes it; the sensor only reads it.
+    generated_manifest: str | None = None
     source: str | None = field(default=None, compare=False)
 
     @property
@@ -76,6 +82,7 @@ def _from_mapping(raw: dict, source: str) -> Config:
         required_workflow_scans=tuple(scans),
         fail_on=raw.get("fail_on"),
         exclude=tuple(raw.get("exclude", ()) or ()),
+        generated_manifest=raw.get("generated_manifest") or None,
         source=source,
     )
 

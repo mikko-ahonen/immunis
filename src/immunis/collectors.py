@@ -31,7 +31,7 @@ from pathlib import Path
 from . import __version__
 from .repo import Repo
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 FILE_CAP = 20_000
 LIST_CAP = 1_000
 DIFF_CAP_BYTES = 512 * 1024
@@ -192,8 +192,37 @@ def collect_repository(repo: Repo, config, c: Collection, ctx: dict) -> None:
     c.add("commit", record(f"commit:{sha}", ["merge"] if len(parents) > 1 else [], **fields))
 
 
+def _read_manifest(repo: Repo, path: str) -> tuple[dict[str, str], str] | None:
+    """{path: sha256} from a JSON object or a sha256sum-format text file."""
+    import json
+    text = repo.read(*Path(path).parts)
+    if not text:
+        return None
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return {str(k): str(v) for k, v in data.items() if re.fullmatch(r"[0-9a-f]{64}", str(v))}, "json"
+    except ValueError:
+        pass
+    out = {}
+    for line in text.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2 and re.fullmatch(r"[0-9a-f]{64}", parts[0]):
+            out[parts[1].lstrip("*").strip()] = parts[0]
+    return (out, "sha256sum") if out else None
+
+
 def collect_files(repo: Repo, config, c: Collection, ctx: dict) -> None:
+    manifest, fmt = {}, None
+    manifest_path = getattr(config, "generated_manifest", None)
+    if manifest_path:
+        read = _read_manifest(repo, manifest_path)
+        if read is None:
+            c.fail("files", f"generated manifest {manifest_path} is absent or unreadable")
+        else:
+            manifest, fmt = read
     count = 0
+    seen = set()
     for rel in repo.walk():
         count += 1
         if count > FILE_CAP:
@@ -213,8 +242,19 @@ def collect_files(repo: Repo, config, c: Collection, ctx: dict) -> None:
             tags.append("vendored")
         if kind != "binary" and _GENERATED.search(data[:2000].decode("utf-8", "replace")):
             tags.append("generated")
-        c.add("file", record(f"file:{rel.as_posix()}", tags, path=rel.as_posix(), size=len(data),
-                             sha256=hashlib.sha256(data).hexdigest(), kind=kind, executable=executable))
+        digest = hashlib.sha256(data).hexdigest()
+        fields = dict(path=rel.as_posix(), size=len(data), sha256=digest, kind=kind, executable=executable)
+        if rel.as_posix() in manifest:
+            seen.add(rel.as_posix())
+            tags += ["listed", "generated"]
+            fields["listed_sha256"] = manifest[rel.as_posix()]
+            if manifest[rel.as_posix()] != digest:
+                tags.append("hand-edited")
+        c.add("file", record(f"file:{rel.as_posix()}", tags, **fields))
+    if fmt:
+        missing = sorted(set(manifest) - seen)
+        c.add("generated_manifest", record(f"manifest:{manifest_path}", ["incomplete"] if missing else [],
+                                           path=manifest_path, format=fmt, entries=len(manifest), missing=missing[:LIST_CAP]))
     for r in c.facts.get("repository", []):
         r["fields"]["file_count"] = count
     if count > FILE_CAP:
@@ -352,7 +392,7 @@ def _parse_workflow(text: str) -> dict:
     which the caller records as a failure rather than guessing.
     """
     lines = text.splitlines()
-    name, triggers, jobs = "", [], {}
+    name, triggers, jobs, meta = "", [], {}, {}
     i = 0
     while i < len(lines):
         raw = lines[i]
@@ -379,14 +419,15 @@ def _parse_workflow(text: str) -> dict:
                             triggers.append(s.split(":")[0])
                         j += 1
             elif key == "jobs":
-                i = _parse_jobs(lines, i + 1, jobs)
+                i = _parse_jobs(lines, i + 1, jobs, meta)
                 continue
         i += 1
-    return {"name": name, "triggers": triggers, "jobs": jobs}
+    return {"name": name, "triggers": triggers, "jobs": jobs, "meta": meta}
 
 
-def _parse_jobs(lines: list[str], i: int, jobs: dict) -> int:
+def _parse_jobs(lines: list[str], i: int, jobs: dict, meta: dict | None = None) -> int:
     current = None
+    meta = meta if meta is not None else {}
     while i < len(lines):
         raw = lines[i]
         if raw.strip() and not raw.startswith((" ", "\t")):
@@ -397,8 +438,24 @@ def _parse_jobs(lines: list[str], i: int, jobs: dict) -> int:
         if not commented and indent == 2 and stripped.strip().endswith(":") and not stripped.strip().startswith("-"):
             current = stripped.strip()[:-1]
             jobs[current] = []
+            meta[current] = {"needs": [], "runs_on": None}
             i += 1
             continue
+        if current is not None and not commented and indent == 4:
+            key, sep, value = stripped.strip().partition(":")
+            if sep and key == "needs":
+                value = value.strip()
+                if value.startswith("["):
+                    meta[current]["needs"] = [v.strip().strip("\"'") for v in value.strip("[]").split(",") if v.strip()]
+                elif value:
+                    meta[current]["needs"] = [value.strip("\"'")]
+                else:
+                    j = i + 1
+                    while j < len(lines) and lines[j].strip().startswith("-"):
+                        meta[current]["needs"].append(lines[j].strip()[1:].strip().strip("\"'"))
+                        j += 1
+            elif sep and key == "runs-on":
+                meta[current]["runs_on"] = value.strip().strip("\"'")
         if current is not None and stripped.strip() == "steps:" and indent == 4:
             i = _parse_steps(lines, i + 1, jobs[current])
             continue
@@ -420,7 +477,8 @@ def _parse_steps(lines: list[str], i: int, steps: list, all_disabled: bool = Fal
             return i                          # next job key or top level
         stripped = text.strip()
         if stripped.startswith("- "):
-            step = {"name": "", "uses": None, "run": "", "enabled": not (commented or all_disabled), "if": None}
+            step = {"name": "", "uses": None, "run": "", "enabled": not (commented or all_disabled), "if": None,
+                    "continue_on_error": False}
             steps.append(step)
             stripped = stripped[2:]
         if step is None or not stripped:
@@ -428,6 +486,8 @@ def _parse_steps(lines: list[str], i: int, steps: list, all_disabled: bool = Fal
             continue
         key, sep, value = stripped.partition(":")
         key = key.strip()
+        if sep and key == "continue-on-error":
+            step["continue_on_error"] = value.strip().strip("\"'").lower() == "true"
         if sep and key in ("name", "uses", "if", "run"):
             value = value.strip()
             if key == "run" and value in ("|", ">", "|-", ">-"):
@@ -469,10 +529,21 @@ def collect_workflows(repo: Repo, config, c: Collection, ctx: dict) -> None:
         c.add("workflow", record(wf_id, tags, path=rel.as_posix(), forge=forge, name=wf["name"],
                                  triggers=wf["triggers"][:LIST_CAP], jobs=list(wf["jobs"])[:LIST_CAP]))
         for job, steps in wf["jobs"].items():
+            m = wf.get("meta", {}).get(job, {"needs": [], "runs_on": None})
+            job_id = f"job:{rel.as_posix()}:{job}"
+            jfields = dict(workflow_path=rel.as_posix(), name=job, needs=m["needs"][:LIST_CAP])
+            if m["runs_on"]:
+                jfields["runs_on"] = m["runs_on"]
+            jtags = [t for t in ("deploy", "publish", "test") if t in job.lower()]
+            c.add("workflow_job", record(job_id, jtags, **jfields))
+            c.relate("part_of", job_id, wf_id)
+            for needed in m["needs"]:
+                c.relate("needs", job_id, f"job:{rel.as_posix()}:{needed}")
             for idx, s in enumerate(steps):
                 haystack = f"{s['uses'] or ''} {s['run']} {s['name']}".lower()
                 tool = next((t for t in _SCANNER_TOOLS if t in haystack), None)
-                fields = dict(workflow_path=rel.as_posix(), job=job, index=idx, name=s["name"], enabled=s["enabled"])
+                fields = dict(workflow_path=rel.as_posix(), job=job, index=idx, name=s["name"], enabled=s["enabled"],
+                              continue_on_error=s["continue_on_error"])
                 if s["uses"]:
                     fields["uses"] = s["uses"]
                 if s["run"]:
@@ -484,9 +555,12 @@ def collect_workflows(repo: Repo, config, c: Collection, ctx: dict) -> None:
                     stags.append("scanner")
                 if not s["enabled"]:
                     stags.append("disabled")
+                if s["continue_on_error"]:
+                    stags.append("soft-fail")
                 step_id = f"step:{rel.as_posix()}:{job}:{idx}"
                 c.add("workflow_step", record(step_id, stags, **fields))
                 c.relate("part_of", step_id, wf_id)
+                c.relate("in_job", step_id, job_id)
 
 
 def collect_sops(repo: Repo, config, c: Collection, ctx: dict) -> None:

@@ -68,6 +68,12 @@ fail_on = "high"          # default; "none" reports without gating
 min_sops_recipients = 2
 exclude = ["tests/fixtures/*"]
 
+# A generated-file manifest, if something generates files into this
+# repository: a JSON object of {path: sha256} or a sha256sum-format file.
+# The sensor records each listed file's listed digest next to its actual
+# one, so a hand-edited generated file is a fact (tag `hand-edited`).
+generated_manifest = ".generated.json"
+
 [[required_workflow_scans]]
 path = ".github/workflows/ci.yml"
 markers = ["gitleaks", "trivy"]
@@ -117,7 +123,7 @@ additively: within a major, new kinds, fields and tags only. What is in it:
 | `files` | one record per tracked file: path, size, sha256, kind, executable; tags `tracked`, `generated`, `vendored` |
 | `python-deps` | one per requirements line: name, specifier, extras, which file, `pinned`/`unpinned`, `public-file`/`private-file`, `private` when the name is in your config |
 | `indexes` | every index URL in build inputs, **credentials redacted**, with `union` for `--extra-index-url` and `credentialed` when something was there |
-| `workflows` | CI workflows and their steps, with the scanner tool a step runs when recognisable and `disabled` for commented-out or `if: false` steps; `run:` text is digested, never copied |
+| `workflows` | CI workflows, their jobs with the `needs` graph, and their steps, with the scanner tool a step runs when recognisable, `disabled` for commented-out or `if: false` steps and `soft-fail` for `continue-on-error`; `run:` text is digested, never copied |
 | `sops` | each secrets store with its recipient count and public recipient ids |
 | `env` | each `.env` with its **key names** and which keys assign a credential-looking value; values never leave the collector |
 | `suppressions` | every `immunis: allow <id>` as a fact — the consumer honours it, the sensor no longer filters on it |
