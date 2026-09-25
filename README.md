@@ -93,6 +93,55 @@ reviewer can argue with.
 Prefer restructuring over suppressing. immunis's own credential fixture is
 assembled from pieces rather than waived.
 
+## The fact artifact
+
+Besides the findings, every scan writes a **fact artifact**: what the
+repository contains, with no judgement attached. A consumer that keeps
+history and evaluates rules of its own reads this instead of the findings,
+and a rule can then be changed without rescanning anything.
+
+```bash
+immunis scan . --fail-on none            # judge nothing here; the consumer does
+immunis scan . --base "$BASE_SHA"        # include the redacted diff of a change
+immunis report tmp/immunis/scan.json --report https://consumer.example
+```
+
+The artifact lands in `tmp/immunis/scan.json` (`--artifact FILE` to move it,
+`--no-artifact` to skip it) and is POSTed to `<URL>/api/v1/scans` with
+`--report`. It is described by `src/immunis/artifact.schema.json`, versioned
+additively: within a major, new kinds, fields and tags only. What is in it:
+
+| collector | emits |
+|---|---|
+| `repository` | the repository (forge, owner, name, default branch, file count) and the commit (sha, parents, subject, when) |
+| `files` | one record per tracked file: path, size, sha256, kind, executable; tags `tracked`, `generated`, `vendored` |
+| `python-deps` | one per requirements line: name, specifier, extras, which file, `pinned`/`unpinned`, `public-file`/`private-file`, `private` when the name is in your config |
+| `indexes` | every index URL in build inputs, **credentials redacted**, with `union` for `--extra-index-url` and `credentialed` when something was there |
+| `workflows` | CI workflows and their steps, with the scanner tool a step runs when recognisable and `disabled` for commented-out or `if: false` steps; `run:` text is digested, never copied |
+| `sops` | each secrets store with its recipient count and public recipient ids |
+| `env` | each `.env` with its **key names** and which keys assign a credential-looking value; values never leave the collector |
+| `suppressions` | every `immunis: allow <id>` as a fact — the consumer honours it, the sensor no longer filters on it |
+| `diff` | with `--base`: the unified diff, redacted and capped at 512 KiB with dropped files listed |
+
+| `local-checks` | every executable under `.immunis/checks/`, run out of process with the checkout as working directory: exit code, duration, output digest, its sha256 and the digest listed for it in `.immunis/checks/SHA256SUMS`, so a `modified` or `unlisted` check is a fact; findings it prints as a JSON list become `local_finding` records |
+
+### Local checks
+
+Checks that are yours and not the scanner's live in the repository, under
+`.immunis/checks/`. Each is an executable; the sensor runs it and records
+what it said, never what it meant. A check may print a JSON list of
+findings on stdout, each with `rule_id`, `severity`, `message` and
+optionally `path` and `line`; a non-zero exit means the check could not
+run and is recorded as `failed`. Whatever generates the checks can write
+`SHA256SUMS` beside them (the `sha256sum` format), and a check whose digest
+differs from its listed one is tagged `modified`. No configuration names
+the checks: the directory is the list.
+
+A collector that fails is listed in the artifact's `scan.failed` with a
+reason; absence is never silent. The scanner's own findings ride along as
+`third_party_finding` records with `tool = "immunis"`, so a consumer can
+treat them like gitleaks' or trivy's until it has rules of its own.
+
 ## In CI
 
 ```yaml
@@ -103,10 +152,10 @@ assembled from pieces rather than waived.
 ```
 
 Exit codes: `0` clean, `1` findings at or above `--fail-on`, `2` the scan could
-not run. `--json` writes the scan to stdout; `--report URL` POSTs it to a
-collector (bearer from `IMMUNIS_TOKEN`), best-effort — a collector being down
-must not turn your pipeline red, so the exit code comes from the findings
-alone.
+not run. `--json` writes the findings to stdout; `--report URL` POSTs the fact
+artifact to a consumer (bearer from `IMMUNIS_TOKEN`), best-effort — a consumer
+being down must not turn your pipeline red, so the exit code comes from the
+findings alone.
 
 ## No runtime dependencies
 

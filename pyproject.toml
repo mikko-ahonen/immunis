@@ -39,7 +39,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "jsonschema"]
 
 [project.scripts]
 immunis = "immunis.__main__:main"
@@ -54,6 +54,9 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+immunis = ["artifact.schema.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

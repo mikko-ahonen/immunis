@@ -1,0 +1,1376 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://immunis.dev/schema/artifact-1.schema.json",
+  "title": "immunis scan artifact",
+  "description": "What the sensor emits and ingest validates (facts.md §2). Version 1.1. Within a major, changes only add: a consumer validating an artifact of a newer minor than it knows validates against its latest known minor and ignores unknown kinds, fields and tags. This schema is strict for the version it describes.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+$"
+    },
+    "scan": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^scan:"
+        },
+        "sensor": {
+          "type": "string"
+        },
+        "sensor_version": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "finished_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "collectors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "failed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "collector": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "collector",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "sensor",
+        "sensor_version",
+        "started_at",
+        "finished_at",
+        "collectors",
+        "failed"
+      ],
+      "additionalProperties": false
+    },
+    "subject": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string"
+        },
+        "repository": {
+          "type": "object",
+          "properties": {
+            "forge": {
+              "type": "string"
+            },
+            "owner": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "forge",
+            "owner",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "commit": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "change": {
+          "type": "object",
+          "properties": {
+            "base": {
+              "type": "string"
+            },
+            "head": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "base",
+            "head"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "project",
+        "repository",
+        "commit",
+        "ref"
+      ],
+      "additionalProperties": false
+    },
+    "facts": {
+      "type": "object",
+      "properties": {
+        "repository": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "The repository the scan is about. One record.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^repository:"
+              },
+              "tags": {
+                "type": "array",
+                "items": false,
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "forge": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "default_branch": {
+                    "type": "string"
+                  },
+                  "file_count": {
+                    "type": "integer",
+                    "description": "the true count, even when the file list is capped"
+                  },
+                  "tracked_only": {
+                    "type": "boolean",
+                    "description": "whether the walk was limited to git-tracked files"
+                  }
+                },
+                "required": [
+                  "forge",
+                  "owner",
+                  "name",
+                  "default_branch",
+                  "file_count",
+                  "tracked_only"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "commit": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "The commit scanned. One record.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^commit:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "merge"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "sha": {
+                    "type": "string"
+                  },
+                  "authored_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "author_name": {
+                    "type": "string"
+                  },
+                  "message_subject": {
+                    "type": "string"
+                  },
+                  "parents": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 1000
+                  }
+                },
+                "required": [
+                  "sha",
+                  "authored_at",
+                  "message_subject",
+                  "parents"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "change": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "The diff under review. Zero or one record.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^change:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "truncated"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "base": {
+                    "type": "string"
+                  },
+                  "head": {
+                    "type": "string"
+                  },
+                  "files_changed": {
+                    "type": "integer"
+                  },
+                  "insertions": {
+                    "type": "integer"
+                  },
+                  "deletions": {
+                    "type": "integer"
+                  },
+                  "diff": {
+                    "type": "string",
+                    "description": "unified diff, redacted, capped (§5)"
+                  },
+                  "truncated": {
+                    "type": "boolean"
+                  },
+                  "omitted_files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 1000,
+                    "description": "paths whose hunks were dropped by the cap"
+                  }
+                },
+                "required": [
+                  "base",
+                  "head",
+                  "files_changed",
+                  "insertions",
+                  "deletions",
+                  "diff",
+                  "truncated",
+                  "omitted_files"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "file": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "One per file the walk visited. Capped (§5).",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^file:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "generated",
+                    "tracked",
+                    "vendored"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer"
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "python",
+                      "requirements",
+                      "dockerfile",
+                      "workflow",
+                      "env",
+                      "sops",
+                      "config",
+                      "text",
+                      "binary"
+                    ]
+                  },
+                  "executable": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "path",
+                  "size",
+                  "sha256",
+                  "kind",
+                  "executable"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "dependency_declaration": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "One per requirement line or manifest entry.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^dep:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "lock",
+                    "pinned",
+                    "private",
+                    "private-file",
+                    "public-file",
+                    "unpinned"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "canonical package name"
+                  },
+                  "spec": {
+                    "type": "string",
+                    "description": "the raw specifier"
+                  },
+                  "extras": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 1000
+                  },
+                  "manager": {
+                    "enum": [
+                      "pip",
+                      "uv",
+                      "npm",
+                      "poetry"
+                    ]
+                  },
+                  "file_path": {
+                    "type": "string",
+                    "description": "the declaring file's path; the record is also related to it"
+                  },
+                  "line": {
+                    "type": "integer"
+                  },
+                  "direct": {
+                    "type": "boolean",
+                    "description": "a top-level declaration rather than a lock entry"
+                  }
+                },
+                "required": [
+                  "name",
+                  "spec",
+                  "extras",
+                  "manager",
+                  "file_path",
+                  "line",
+                  "direct"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "index_reference": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "One per index URL found in any build input.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^index:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "credentialed",
+                    "private",
+                    "public",
+                    "union"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "description": "credentials redacted"
+                  },
+                  "host": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "index-url",
+                      "extra-index-url",
+                      "find-links",
+                      "config"
+                    ]
+                  },
+                  "file_path": {
+                    "type": "string"
+                  },
+                  "line": {
+                    "type": "integer"
+                  },
+                  "had_credentials": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "url",
+                  "host",
+                  "kind",
+                  "file_path",
+                  "line",
+                  "had_credentials"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "workflow": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "One per CI workflow file.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^workflow:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "deploy",
+                    "publish",
+                    "test"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "forge": {
+                    "enum": [
+                      "gitea",
+                      "github"
+                    ]
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "triggers": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 1000
+                  },
+                  "jobs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 1000
+                  }
+                },
+                "required": [
+                  "path",
+                  "forge",
+                  "name",
+                  "triggers",
+                  "jobs"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "workflow_step": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "One per step of a workflow job.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^step:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "disabled",
+                    "scanner"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "workflow_path": {
+                    "type": "string"
+                  },
+                  "job": {
+                    "type": "string"
+                  },
+                  "index": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "uses": {
+                    "type": "string"
+                  },
+                  "run_digest": {
+                    "type": "string",
+                    "description": "sha256 of the run block, never the text"
+                  },
+                  "tool": {
+                    "type": "string",
+                    "description": "when recognisable: gitleaks, trivy, pip-audit, immunis, playwright, …"
+                  },
+                  "enabled": {
+                    "type": "boolean",
+                    "description": "not commented out, no `if: false`"
+                  }
+                },
+                "required": [
+                  "workflow_path",
+                  "job",
+                  "index",
+                  "name",
+                  "enabled"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "secret_store": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "One per SOPS (or equivalent) store.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^store:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "single-recipient",
+                    "tracked"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "sops"
+                    ]
+                  },
+                  "recipient_count": {
+                    "type": "integer"
+                  },
+                  "recipients": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 1000,
+                    "description": "public key identifiers, not secrets"
+                  },
+                  "has_master_key": {
+                    "type": "boolean",
+                    "description": "a shared recovery recipient is present"
+                  }
+                },
+                "required": [
+                  "path",
+                  "kind",
+                  "recipient_count",
+                  "recipients",
+                  "has_master_key"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "env_file": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "One per .env-style file. Values are never emitted.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^env:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "assigns-secrets",
+                    "tracked"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "tracked": {
+                    "type": "boolean"
+                  },
+                  "keys": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 1000,
+                    "description": "names only"
+                  },
+                  "assigned_secret_keys": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 1000,
+                    "description": "names whose value looked like a credential"
+                  }
+                },
+                "required": [
+                  "path",
+                  "tracked",
+                  "keys",
+                  "assigned_secret_keys"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "coverage_report": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "Zero or one.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^coverage:"
+              },
+              "tags": {
+                "type": "array",
+                "items": false,
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "tool": {
+                    "type": "string",
+                    "description": "coverage.py, istanbul, …"
+                  },
+                  "total_percent": {
+                    "type": "integer",
+                    "description": "×100 to avoid floats: 8123 is 81.23%"
+                  },
+                  "lines_total": {
+                    "type": "integer"
+                  },
+                  "lines_covered": {
+                    "type": "integer"
+                  },
+                  "measured_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "source": {
+                    "enum": [
+                      "file",
+                      "probe"
+                    ]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "total_percent",
+                  "lines_total",
+                  "lines_covered",
+                  "measured_at",
+                  "source"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "migration_state": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "Zero or one.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^migrations:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "inconsistent"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "tool": {
+                    "enum": [
+                      "django"
+                    ]
+                  },
+                  "consistent": {
+                    "type": "boolean",
+                    "description": "makemigrations --check is clean"
+                  },
+                  "pending_count": {
+                    "type": "integer"
+                  },
+                  "output_digest": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "tool",
+                  "consistent",
+                  "pending_count",
+                  "output_digest"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "system_check": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "One per reported check id from the framework's deploy checks.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^syscheck:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "error",
+                    "silenced",
+                    "warning"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "tool": {
+                    "type": "string"
+                  },
+                  "check_id": {
+                    "type": "string",
+                    "description": "e.g. security.W012"
+                  },
+                  "level": {
+                    "enum": [
+                      "error",
+                      "warning",
+                      "info"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "tool",
+                  "check_id",
+                  "level",
+                  "message"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "third_party_finding": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "One per finding of a tool already in the pipeline, read from its report.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^finding:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "critical",
+                    "fixable",
+                    "high",
+                    "info",
+                    "low",
+                    "medium"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "tool": {
+                    "type": "string"
+                  },
+                  "tool_version": {
+                    "type": "string"
+                  },
+                  "rule_id": {
+                    "type": "string"
+                  },
+                  "severity": {
+                    "type": "string",
+                    "description": "as the tool reported it, lowercase"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "line": {
+                    "type": "integer"
+                  },
+                  "package": {
+                    "type": "string"
+                  },
+                  "installed_version": {
+                    "type": "string"
+                  },
+                  "fixed_version": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "fingerprint": {
+                    "type": "string",
+                    "description": "the tool's own stable id or a content hash"
+                  }
+                },
+                "required": [
+                  "tool",
+                  "tool_version",
+                  "rule_id",
+                  "severity",
+                  "message",
+                  "fingerprint"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "probe_result": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "One per probe the sensor ran.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^probe:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "failed"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "probe": {
+                    "type": "string"
+                  },
+                  "command_digest": {
+                    "type": "string"
+                  },
+                  "exit_code": {
+                    "type": "integer"
+                  },
+                  "duration_ms": {
+                    "type": "integer"
+                  },
+                  "stdout_digest": {
+                    "type": "string"
+                  },
+                  "summary": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "probe",
+                  "command_digest",
+                  "exit_code",
+                  "duration_ms",
+                  "stdout_digest"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "local_check": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "One per executable under .immunis/checks/, run by the sensor out of process. The check's digest and, when a SHA256SUMS file lists it, the listed digest, so a modified or unlisted check is a fact.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^check:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "failed",
+                    "modified",
+                    "unlisted"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "check": {
+                    "type": "string",
+                    "description": "the file name, which is the check's id"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "description": "digest of the script as run"
+                  },
+                  "listed_sha256": {
+                    "type": "string",
+                    "description": "digest listed for it in .immunis/checks/SHA256SUMS"
+                  },
+                  "exit_code": {
+                    "type": "integer"
+                  },
+                  "duration_ms": {
+                    "type": "integer"
+                  },
+                  "stdout_digest": {
+                    "type": "string"
+                  },
+                  "findings": {
+                    "type": "integer",
+                    "description": "how many findings it printed"
+                  }
+                },
+                "required": [
+                  "check",
+                  "path",
+                  "sha256",
+                  "exit_code",
+                  "duration_ms",
+                  "stdout_digest",
+                  "findings"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "local_finding": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "One per finding a local check printed. Ours, unlike third_party_finding: the rule ids and severities are the repository's own.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^local:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "critical",
+                    "high",
+                    "info",
+                    "low",
+                    "medium"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "check": {
+                    "type": "string"
+                  },
+                  "rule_id": {
+                    "type": "string"
+                  },
+                  "severity": {
+                    "type": "string",
+                    "description": "as the check reported it, lowercase"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "line": {
+                    "type": "integer"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "fingerprint": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "check",
+                  "rule_id",
+                  "severity",
+                  "message",
+                  "fingerprint"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "suppression": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "One per `immunis: allow <check-id>` comment. A fact the auditor honours at render; the sensor does not apply it.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^allow:"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "file-scope",
+                    "no-reason"
+                  ]
+                },
+                "uniqueItems": true
+              },
+              "fields": {
+                "type": "object",
+                "properties": {
+                  "check": {
+                    "type": "string",
+                    "description": "the rule id being allowed"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "line": {
+                    "type": "integer"
+                  },
+                  "scope": {
+                    "enum": [
+                      "line",
+                      "file"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "description": "the comment text after the id"
+                  },
+                  "author": {
+                    "type": "string",
+                    "description": "from blame, when cheap"
+                  }
+                },
+                "required": [
+                  "check",
+                  "path",
+                  "line",
+                  "scope",
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tags",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "enum": [
+              "declared_in",
+              "part_of",
+              "located_in",
+              "found_by"
+            ]
+          },
+          "subject": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "subject",
+          "object"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "scan",
+    "subject",
+    "facts",
+    "relations"
+  ],
+  "additionalProperties": false
+}

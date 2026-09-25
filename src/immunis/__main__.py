@@ -1,9 +1,17 @@
 """The `immunis` command.
 
     immunis --version
-    immunis scan [path] [--project NAME] [--ref SHA]
+    immunis scan [path] [--project NAME] [--ref SHA] [--base SHA]
                  [--fail-on none|info|low|medium|high|critical]
-                 [--report URL] [--json]
+                 [--artifact FILE | --no-artifact] [--report URL] [--json]
+    immunis report FILE --report URL
+
+`scan` does two things. It runs the checks and gates on them (the exit code),
+and it writes the **fact artifact** — everything the collectors in
+collectors.py saw, no judgement — to `tmp/immunis/scan.json` by default, and
+POSTs it with `--report`. A consumer that evaluates its own rules over the
+artifact runs the scan with `--fail-on none` and gates elsewhere. `report`
+re-posts an artifact written earlier.
 
 Exit codes:
     0  scanned; nothing at or above --fail-on
@@ -22,15 +30,17 @@ from pathlib import Path
 
 from . import __version__
 from .checks import run as run_checks
+from .collectors import scan as collect
 from .config import load as load_config
 from .finding import FAIL_ON_CHOICES, gates
-from .report import TOKEN_ENV, payload, send
+from .report import TOKEN_ENV, payload, send, send_artifact
 
 EXIT_OK = 0
 EXIT_FINDINGS = 1
 EXIT_ERROR = 2
 
 DEFAULT_FAIL_ON = "high"
+DEFAULT_ARTIFACT = Path("tmp/immunis/scan.json")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,6 +60,12 @@ def build_parser() -> argparse.ArgumentParser:
                            "directory name)")
     scan.add_argument("--ref", default=None,
                       help="commit sha the scan describes")
+    scan.add_argument("--base", default=None, metavar="SHA",
+                      help="base ref of the change under review; enables the diff in the artifact")
+    scan.add_argument("--artifact", default=None, metavar="FILE",
+                      help=f"where to write the fact artifact (default: {DEFAULT_ARTIFACT} under the checkout)")
+    scan.add_argument("--no-artifact", action="store_true",
+                      help="do not write the fact artifact")
     scan.add_argument("--fail-on", default=None, choices=FAIL_ON_CHOICES,
                       help=f"weakest severity that fails the run (default: "
                            f"{DEFAULT_FAIL_ON}, or fail_on from config; "
@@ -57,7 +73,12 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--report", default=None, metavar="URL",
                       help=f"base URL to POST the scan to; needs {TOKEN_ENV}")
     scan.add_argument("--json", action="store_true",
-                      help="write the scan as JSON to stdout")
+                      help="write the findings as JSON to stdout")
+
+    report = sub.add_parser("report", help="re-post an artifact written by an earlier scan")
+    report.add_argument("file", help="the artifact file")
+    report.add_argument("--report", required=True, metavar="URL",
+                        help=f"base URL to POST the artifact to; needs {TOKEN_ENV}")
     return parser
 
 
@@ -92,6 +113,16 @@ def cmd_scan(args) -> int:
     findings = run_checks(root, config)
     gating = gates(findings, fail_on)
 
+    artifact = collect(root, config, project=project, ref=args.ref, base=args.base, findings=findings,
+                       environment=_environment())
+    if not args.no_artifact:
+        target = Path(args.artifact) if args.artifact else root / DEFAULT_ARTIFACT
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(json.dumps(artifact, indent=1) + "\n", encoding="utf-8")
+        except OSError as exc:
+            print(f"immunis: could not write the artifact to {target}: {exc}", file=sys.stderr)
+
     if args.json:
         json.dump(payload(project, args.ref, findings), sys.stdout, indent=2)
         sys.stdout.write("\n")
@@ -99,6 +130,9 @@ def cmd_scan(args) -> int:
         where = config.source or "no config — checks needing policy are off"
         print(f"immunis {__version__} scanned {project} at {root} ({where})")
         print(_format(findings))
+        facts = sum(len(v) for v in artifact["facts"].values())
+        failed = ", ".join(f["collector"] for f in artifact["scan"]["failed"]) or "none"
+        print(f"artifact: {facts} facts from {len(artifact['scan']['collectors'])} collectors (failed: {failed})")
 
     if args.report:
         token = os.environ.get(TOKEN_ENV, "").strip()
@@ -107,8 +141,7 @@ def cmd_scan(args) -> int:
             print(f"immunis: {TOKEN_ENV} is unset — not reporting",
                   file=sys.stderr)
         else:
-            ok, status = send(args.report, token,
-                              payload(project, args.ref, findings))
+            ok, status = send_artifact(args.report, token, artifact)
             print(f"immunis: {status}",
                   file=sys.stdout if ok else sys.stderr)
 
@@ -119,10 +152,38 @@ def cmd_scan(args) -> int:
     return EXIT_OK
 
 
+def _environment() -> dict:
+    import platform
+    env = {"python": platform.python_version(), "os": platform.system().lower()}
+    for var, label in (("GITHUB_ACTIONS", "github-actions"), ("GITEA_ACTIONS", "gitea-actions"), ("CI", "ci")):
+        if os.environ.get(var):
+            env["ci"] = label
+            break
+    return env
+
+
+def cmd_report(args) -> int:
+    path = Path(args.file)
+    try:
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"immunis: cannot read artifact {path}: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    token = os.environ.get(TOKEN_ENV, "").strip()
+    if not token:
+        print(f"immunis: {TOKEN_ENV} is unset — not reporting", file=sys.stderr)
+        return EXIT_ERROR
+    ok, status = send_artifact(args.report, token, artifact)
+    print(f"immunis: {status}", file=sys.stdout if ok else sys.stderr)
+    return EXIT_OK if ok else EXIT_ERROR
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "scan":
         return cmd_scan(args)
+    if args.command == "report":
+        return cmd_report(args)
     return EXIT_ERROR  # unreachable while subparsers are required
 
 

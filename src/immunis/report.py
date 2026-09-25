@@ -18,7 +18,8 @@ import urllib.request
 
 from . import __version__
 
-REPORT_PATH = "/api/reports"
+REPORT_PATH = "/api/reports"           # the findings payload (legacy consumers)
+SCANS_PATH = "/api/v1/scans"            # the fact artifact (see collectors.py)
 TIMEOUT_SECONDS = 15
 TOKEN_ENV = "IMMUNIS_TOKEN"
 
@@ -33,9 +34,9 @@ def payload(project: str, ref: str | None, findings) -> dict:
     }
 
 
-def send(base_url: str, token: str, body: dict) -> tuple[bool, str]:
-    """POST the scan. Returns (ok, human-readable status); never raises."""
-    url = base_url.rstrip("/") + REPORT_PATH
+def send(base_url: str, token: str, body: dict, path: str = REPORT_PATH) -> tuple[bool, str]:
+    """POST a body. Returns (ok, human-readable status); never raises."""
+    url = base_url.rstrip("/") + path
     request = urllib.request.Request(
         url,
         data=json.dumps(body).encode("utf-8"),
@@ -54,3 +55,8 @@ def send(base_url: str, token: str, body: dict) -> tuple[bool, str]:
         return False, f"report rejected: HTTP {exc.code} {exc.reason}"
     except (urllib.error.URLError, socket.timeout, OSError) as exc:
         return False, f"could not reach {url}: {exc}"
+
+
+def send_artifact(base_url: str, token: str, artifact: dict) -> tuple[bool, str]:
+    """POST the fact artifact to the consumer's ingest endpoint."""
+    return send(base_url, token, artifact, SCANS_PATH)
