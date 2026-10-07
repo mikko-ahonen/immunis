@@ -221,6 +221,11 @@ def cmd_gate(args) -> int:
         name = e.get("kind") or e.get("constraint")
         summary = e.get("summary") or ""
         print(f"  {name}: {e.get('status')}{' — ' + summary if summary else ''}", file=sys.stderr)
+    pending = body.get("pending_override") or {}
+    if pending.get("url"):
+        # The way through is a human's recorded authorization in the fleet's
+        # system of record — never a flag here.
+        print(f"  override: a human may authorize {pending['url']}", file=sys.stderr)
     return EXIT_FINDINGS
 
 

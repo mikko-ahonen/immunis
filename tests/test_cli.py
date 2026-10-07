@@ -135,11 +135,13 @@ def test_gate_held_lists_the_kinds_not_green(monkeypatch, capsys):
     _gate_answer(monkeypatch, 200, {"cleared": False, "required": [
         {"kind": "coverage", "status": "failing", "summary": "coverage 78.1% below 80%"},
         {"kind": "review", "status": "passing"},
-        {"kind": "migrations", "status": "missing"}], "override": None})
+        {"kind": "migrations", "status": "missing"}], "override": None,
+        "pending_override": {"request": "request_1", "status": "open", "url": "https://brain.test/requests/request_1"}})
     assert main(["gate", "--subject", "abc", "--cadence", "change", "--lifecycle", "development",
                  "--report", "https://example.test"]) == EXIT_FINDINGS
     err = capsys.readouterr().err
     assert "2 kind(s) not green" in err
+    assert "override: a human may authorize https://brain.test/requests/request_1" in err
     assert "coverage: failing — coverage 78.1% below 80%" in err and "migrations: missing" in err
     assert "review" not in err
 
