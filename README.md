@@ -177,7 +177,10 @@ the consumer is the way through — and `2` when the answer could not be had:
 unknown subject, `IMMUNIS_TOKEN` unset, consumer unreachable. **`2` is also a
 hold.** Builds and tests were already green; the one thing that must not
 happen is a deploy that proceeds because nobody could be asked. `--wait`
-blocks until cleared or the seconds pass (the consumer caps it).
+blocks until cleared or the seconds pass (the consumer caps it). When the
+consumer has opened an override request for the hold, its answer carries
+`pending_override` with a URL — that is where a human authorizes the deploy,
+with the reason on the record.
 
 ## No runtime dependencies
 
