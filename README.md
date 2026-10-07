@@ -128,7 +128,7 @@ additively: within a major, new kinds, fields and tags only. What is in it:
 | `env` | each `.env` with its **key names** and which keys assign a credential-looking value; values never leave the collector |
 | `suppressions` | every `immunis: allow <id>` as a fact — the consumer honours it, the sensor no longer filters on it |
 | `diff` | with `--base`: the unified diff, redacted and capped at 512 KiB with dropped files listed |
-
+| `coverage` | the coverage the test run left behind, never the test run itself: `coverage.json` or Cobertura `coverage.xml` (also under `tmp/`, `reports/`), else a `.coverage` database via the installed coverage.py; total percent ×100, lines, when measured; nothing found is a collector failure, so absence stays legible |
 | `local-checks` | every executable under `.immunis/checks/`, run out of process with the checkout as working directory: exit code, duration, output digest, its sha256 and the digest listed for it in `.immunis/checks/SHA256SUMS`, so a `modified` or `unlisted` check is a fact; findings it prints as a JSON list become `local_finding` records |
 
 ### Local checks

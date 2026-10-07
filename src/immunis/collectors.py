@@ -23,6 +23,7 @@ Rules, in order of how much they matter:
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import subprocess
 from datetime import datetime, timezone
@@ -770,6 +771,97 @@ def collect_local_checks(repo: Repo, config, c: Collection, ctx: dict) -> None:
                 c.relate("located_in", fid, f"file:{f['path']}")
 
 
+# --- coverage ---------------------------------------------------------------
+
+COVERAGE_REPORTS = ("coverage.json", "coverage.xml", "tmp/coverage.json", "tmp/coverage.xml",
+                    "reports/coverage.json", "reports/coverage.xml")
+
+
+def _mtime_iso(path: Path) -> str:
+    return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).replace(microsecond=0) \
+        .isoformat().replace("+00:00", "Z")
+
+
+def _coverage_from_json(path: Path) -> dict:
+    """coverage.py's `coverage json` output: `totals` carries the numbers."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    totals = data["totals"]
+    measured = (data.get("meta") or {}).get("timestamp")
+    if measured:
+        # coverage.py writes a naive local timestamp; CI clocks are UTC and a
+        # laptop's offset is not a fact about the code, so naive means UTC.
+        dt = datetime.fromisoformat(measured)
+        dt = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+        measured = dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return dict(tool="coverage.py",
+                total_percent=int(round(float(totals["percent_covered"]) * 100)),
+                lines_total=int(totals["num_statements"]), lines_covered=int(totals["covered_lines"]),
+                measured_at=measured or _mtime_iso(path))
+
+
+def _coverage_from_xml(path: Path) -> dict:
+    """Cobertura XML (what `coverage xml`, istanbul and most others write)."""
+    import xml.etree.ElementTree as ET
+    root = ET.parse(path).getroot()
+    valid = int(root.get("lines-valid", 0))
+    covered = int(root.get("lines-covered", 0))
+    rate = root.get("line-rate")
+    percent = int(round(float(rate) * 10000)) if rate is not None else (int(round(covered * 10000 / valid)) if valid else 0)
+    ts = root.get("timestamp")
+    measured = None
+    if ts and ts.isdigit():
+        seconds = int(ts) / (1000 if len(ts) > 10 else 1)
+        measured = datetime.fromtimestamp(seconds, timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    head = path.read_text(encoding="utf-8", errors="replace")[:600]
+    tool = "coverage.py" if "coverage.py" in head else ("istanbul" if "istanbul" in head.lower() else "cobertura")
+    return dict(tool=tool, total_percent=percent, lines_total=valid, lines_covered=covered,
+                measured_at=measured or _mtime_iso(path))
+
+
+def collect_coverage(repo: Repo, config, c: Collection, ctx: dict) -> None:
+    """Read the coverage the test run left behind; never run the tests.
+
+    A report file by convention (`coverage.json` / `coverage.xml`, also under
+    `tmp/` and `reports/`) is `source: file`. Failing that, a `.coverage`
+    database is turned into JSON by the installed coverage.py — `source:
+    probe`. Nothing found is a collector failure, so "no coverage in this
+    scan" stays distinguishable from "coverage was 0"."""
+    for rel in COVERAGE_REPORTS:
+        path = repo.root / rel
+        if not path.is_file():
+            continue
+        try:
+            fields = _coverage_from_json(path) if path.suffix == ".json" else _coverage_from_xml(path)
+        except (ValueError, KeyError, TypeError, OSError) as e:
+            c.fail("coverage", f"{rel}: unreadable ({e.__class__.__name__})")
+            return
+        c.add("coverage_report", record(f"coverage:{fields['tool']}", [], source="file", **fields))
+        return
+    db = repo.root / ".coverage"
+    if db.is_file():
+        try:
+            r = subprocess.run(["coverage", "json", "-o", "-", "--data-file", str(db)], cwd=str(repo.root),
+                               capture_output=True, text=True, timeout=60, check=False)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            c.fail("coverage", f".coverage: probe could not run ({e.__class__.__name__})")
+            return
+        if r.returncode != 0:
+            c.fail("coverage", f".coverage: `coverage json` exited {r.returncode}")
+            return
+        try:
+            data = json.loads(r.stdout)
+            totals = data["totals"]
+        except (ValueError, KeyError) as e:
+            c.fail("coverage", f".coverage: probe output unreadable ({e.__class__.__name__})")
+            return
+        c.add("coverage_report", record("coverage:coverage.py", [], source="probe", tool="coverage.py",
+                                        total_percent=int(round(float(totals["percent_covered"]) * 100)),
+                                        lines_total=int(totals["num_statements"]),
+                                        lines_covered=int(totals["covered_lines"]), measured_at=_now()))
+        return
+    c.fail("coverage", "no coverage report found (coverage.json, coverage.xml or .coverage)")
+
+
 COLLECTORS = (
     ("repository", collect_repository),
     ("files", collect_files),
@@ -780,6 +872,7 @@ COLLECTORS = (
     ("env", collect_env),
     ("suppressions", collect_suppressions),
     ("local-checks", collect_local_checks),
+    ("coverage", collect_coverage),
     ("diff", collect_diff),
 )
 
