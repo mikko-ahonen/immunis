@@ -32,6 +32,7 @@ import argparse
 import json
 import os
 import sys
+import time
 import tomllib
 from pathlib import Path
 
@@ -47,6 +48,8 @@ EXIT_FINDINGS = 1
 EXIT_ERROR = 2
 
 DEFAULT_FAIL_ON = "high"
+GATE_WAIT_SLICE_SECONDS = 20   # per request; the consumer caps its own wait near this
+GATE_POLL_SECONDS = 5
 DEFAULT_ARTIFACT = Path("tmp/immunis/scan.json")
 
 
@@ -205,13 +208,26 @@ def cmd_gate(args) -> int:
     if not token:
         print(f"immunis: {TOKEN_ENV} is unset — cannot ask the gate; holding", file=sys.stderr)
         return EXIT_ERROR
-    status, body, text = ask_gate(args.report, token, args.subject, args.cadence,
-                                  lifecycle=args.lifecycle, wait=args.wait)
-    if status is None or body is None or status >= 400 or "cleared" not in body:
-        detail = (body or {}).get("detail") or (body or {}).get("error") or ""
-        print(f"immunis: {text}{': ' + detail if detail else ''} — holding", file=sys.stderr)
-        return EXIT_ERROR
-    held = [e for e in body.get("required", []) if e.get("status") != "passing"]
+    # The client paces the wait, in short server-side slices: a proxy in
+    # front of the consumer times out long before a 300 s long-poll would
+    # return, and "504 — holding" is the wrong reason to hold. Waiting only
+    # makes sense while a verdict is still MISSING (a render in flight); a
+    # verdict that failed will not change by itself, so that holds at once.
+    deadline = time.monotonic() + max(0, args.wait or 0)
+    while True:
+        remaining = int(deadline - time.monotonic())
+        slice_ = min(GATE_WAIT_SLICE_SECONDS, max(0, remaining))
+        status, body, text = ask_gate(args.report, token, args.subject, args.cadence,
+                                      lifecycle=args.lifecycle, wait=slice_)
+        if status is None or body is None or status >= 400 or "cleared" not in body:
+            detail = (body or {}).get("detail") or (body or {}).get("error") or ""
+            print(f"immunis: {text}{': ' + detail if detail else ''} — holding", file=sys.stderr)
+            return EXIT_ERROR
+        held = [e for e in body.get("required", []) if e.get("status") != "passing"]
+        still_rendering = any(e.get("status") == "missing" for e in held)
+        if body["cleared"] or not still_rendering or remaining <= 0:
+            break
+        time.sleep(GATE_POLL_SECONDS)
     if body["cleared"]:
         note = " (override on record)" if body.get("override") else ""
         print(f"immunis: {args.subject} cleared for {args.cadence}{note}")

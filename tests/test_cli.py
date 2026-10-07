@@ -126,7 +126,7 @@ def test_gate_cleared_exits_zero(monkeypatch, capsys):
     monkeypatch.setenv("IMMUNIS_TOKEN", "t0ken")
     calls = _gate_answer(monkeypatch, 200, {"cleared": True, "required": [{"kind": "coverage", "status": "passing"}], "override": None})
     assert main(["gate", "--subject", "abc", "--cadence", "minor", "--wait", "30", "--report", "https://example.test"]) == EXIT_OK
-    assert calls == [("https://example.test", "t0ken", "abc", "minor", "production", 30)]
+    assert calls == [("https://example.test", "t0ken", "abc", "minor", "production", 20)]
     assert "cleared for minor" in capsys.readouterr().out
 
 
