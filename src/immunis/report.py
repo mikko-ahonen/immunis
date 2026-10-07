@@ -60,3 +60,30 @@ def send(base_url: str, token: str, body: dict, path: str = REPORT_PATH) -> tupl
 def send_artifact(base_url: str, token: str, artifact: dict) -> tuple[bool, str]:
     """POST the fact artifact to the consumer's ingest endpoint."""
     return send(base_url, token, artifact, SCANS_PATH)
+
+
+GATE_PATH = "/api/v1/gate"
+
+
+def ask_gate(base_url: str, token: str, subject: str, cadence: str, *, lifecycle: str = "production",
+             wait: int = 0) -> tuple[int | None, dict | None, str]:
+    """GET the gate. Returns (http status or None, parsed body or None, status text).
+    Never raises: unreachable is a status of its own, and the caller holds on it."""
+    import urllib.parse
+    query = urllib.parse.urlencode({"subject": subject, "cadence": cadence, "lifecycle": lifecycle,
+                                    **({"wait": str(wait)} if wait else {})})
+    url = base_url.rstrip("/") + GATE_PATH + "?" + query
+    request = urllib.request.Request(url, method="GET", headers={
+        "Authorization": f"Bearer {token}", "User-Agent": f"immunis/{__version__}", "Accept": "application/json"})
+    timeout = TIMEOUT_SECONDS + (wait or 0)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status, json.loads(response.read().decode("utf-8")), f"gate answered {response.status}"
+    except urllib.error.HTTPError as exc:
+        try:
+            body = json.loads(exc.read().decode("utf-8"))
+        except ValueError:
+            body = None
+        return exc.code, body, f"gate answered HTTP {exc.code} {exc.reason}"
+    except (urllib.error.URLError, socket.timeout, OSError) as exc:
+        return None, None, f"could not reach {url.split('?')[0]}: {exc}"

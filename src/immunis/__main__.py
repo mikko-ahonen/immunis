@@ -5,6 +5,8 @@
                  [--fail-on none|info|low|medium|high|critical]
                  [--artifact FILE | --no-artifact] [--report URL] [--json]
     immunis report FILE --report URL
+    immunis gate --subject SHA --cadence NAME [--lifecycle development|production]
+                 [--wait SECONDS] --report URL
 
 `scan` does two things. It runs the checks and gates on them (the exit code),
 and it writes the **fact artifact** — everything the collectors in
@@ -17,6 +19,11 @@ Exit codes:
     0  scanned; nothing at or above --fail-on
     1  findings at or above --fail-on
     2  the scan could not run (bad path, bad arguments, bad config)
+
+`gate` asks the consumer whether a subject may ship at a cadence and exits 0
+when cleared, 1 when held (the kinds not green are printed), 2 when the
+answer could not be had — unknown subject, no token, consumer unreachable.
+2 is also a hold: a deploy that cannot ask does not proceed.
 """
 
 from __future__ import annotations
@@ -33,7 +40,7 @@ from .checks import run as run_checks
 from .collectors import scan as collect
 from .config import load as load_config
 from .finding import FAIL_ON_CHOICES, gates
-from .report import TOKEN_ENV, payload, send, send_artifact
+from .report import TOKEN_ENV, ask_gate, payload, send, send_artifact
 
 EXIT_OK = 0
 EXIT_FINDINGS = 1
@@ -79,6 +86,19 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("file", help="the artifact file")
     report.add_argument("--report", required=True, metavar="URL",
                         help=f"base URL to POST the artifact to; needs {TOKEN_ENV}")
+
+    gate = sub.add_parser("gate", help="ask the consumer whether a subject may ship at a cadence",
+                          description="Exit 0 cleared, 1 held (the kinds not green are listed), "
+                                      "2 unknown subject / no token / consumer unreachable — also a hold.")
+    gate.add_argument("--subject", required=True, metavar="SHA", help="the commit under judgement")
+    gate.add_argument("--cadence", required=True, metavar="NAME",
+                      help="change, or the release cadence being cut (patch, minor, major, …)")
+    gate.add_argument("--lifecycle", default="production", choices=("development", "production"),
+                      help="the project's stage, from its registry (default: production)")
+    gate.add_argument("--wait", type=int, default=0, metavar="SECONDS",
+                      help="block until cleared or this many seconds pass (the consumer caps it)")
+    gate.add_argument("--report", required=True, metavar="URL",
+                      help=f"base URL of the consumer; needs {TOKEN_ENV}")
     return parser
 
 
@@ -178,12 +198,40 @@ def cmd_report(args) -> int:
     return EXIT_OK if ok else EXIT_ERROR
 
 
+def cmd_gate(args) -> int:
+    """Exit 0 cleared, 1 held, 2 could not ask. 2 is the inverted rule made
+    concrete: an unreachable consumer holds the deploy, nothing else."""
+    token = os.environ.get(TOKEN_ENV, "").strip()
+    if not token:
+        print(f"immunis: {TOKEN_ENV} is unset — cannot ask the gate; holding", file=sys.stderr)
+        return EXIT_ERROR
+    status, body, text = ask_gate(args.report, token, args.subject, args.cadence,
+                                  lifecycle=args.lifecycle, wait=args.wait)
+    if status is None or body is None or status >= 400 or "cleared" not in body:
+        detail = (body or {}).get("detail") or (body or {}).get("error") or ""
+        print(f"immunis: {text}{': ' + detail if detail else ''} — holding", file=sys.stderr)
+        return EXIT_ERROR
+    held = [e for e in body.get("required", []) if e.get("status") != "passing"]
+    if body["cleared"]:
+        note = " (override on record)" if body.get("override") else ""
+        print(f"immunis: {args.subject} cleared for {args.cadence}{note}")
+        return EXIT_OK
+    print(f"immunis: {args.subject} held for {args.cadence} — {len(held)} kind(s) not green:", file=sys.stderr)
+    for e in held:
+        name = e.get("kind") or e.get("constraint")
+        summary = e.get("summary") or ""
+        print(f"  {name}: {e.get('status')}{' — ' + summary if summary else ''}", file=sys.stderr)
+    return EXIT_FINDINGS
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "scan":
         return cmd_scan(args)
     if args.command == "report":
         return cmd_report(args)
+    if args.command == "gate":
+        return cmd_gate(args)
     return EXIT_ERROR  # unreachable while subparsers are required
 
 

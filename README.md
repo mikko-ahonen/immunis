@@ -163,6 +163,22 @@ artifact to a consumer (bearer from `IMMUNIS_TOKEN`), best-effort — a consumer
 being down must not turn your pipeline red, so the exit code comes from the
 findings alone.
 
+## Gate
+
+```
+immunis gate --subject "$SHA" --cadence change --wait 300 --report https://consumer.example
+```
+
+The other half of `--fail-on none`: the consumer judged the artifact, and a
+deploy asks it whether this subject may ship at this cadence (`change` for a
+push; `patch`, `minor`, `major` for a release). Exit `0` cleared, `1` held —
+the kinds not green are listed on stderr, and a recorded human override at
+the consumer is the way through — and `2` when the answer could not be had:
+unknown subject, `IMMUNIS_TOKEN` unset, consumer unreachable. **`2` is also a
+hold.** Builds and tests were already green; the one thing that must not
+happen is a deploy that proceeds because nobody could be asked. `--wait`
+blocks until cleared or the seconds pass (the consumer caps it).
+
 ## No runtime dependencies
 
 This is a security property, not minimalism. A scanner is often installed with

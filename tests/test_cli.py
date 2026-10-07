@@ -103,3 +103,88 @@ def test_no_runtime_dependencies():
     from importlib.metadata import requires
     runtime = [r for r in (requires("immunis") or []) if "extra ==" not in r]
     assert runtime == [], f"unexpected runtime dependencies: {runtime}"
+
+
+def test_gate_without_token_holds(monkeypatch, capsys):
+    monkeypatch.delenv("IMMUNIS_TOKEN", raising=False)
+    assert main(["gate", "--subject", "abc", "--cadence", "change", "--report", "https://example.test"]) == EXIT_ERROR
+    assert "holding" in capsys.readouterr().err
+
+
+def _gate_answer(monkeypatch, status, body, text="gate answered"):
+    import immunis.__main__ as cli
+    calls = []
+
+    def fake(base_url, token, subject, cadence, *, lifecycle="production", wait=0):
+        calls.append((base_url, token, subject, cadence, lifecycle, wait))
+        return status, body, text
+    monkeypatch.setattr(cli, "ask_gate", fake)
+    return calls
+
+
+def test_gate_cleared_exits_zero(monkeypatch, capsys):
+    monkeypatch.setenv("IMMUNIS_TOKEN", "t0ken")
+    calls = _gate_answer(monkeypatch, 200, {"cleared": True, "required": [{"kind": "coverage", "status": "passing"}], "override": None})
+    assert main(["gate", "--subject", "abc", "--cadence", "minor", "--wait", "30", "--report", "https://example.test"]) == EXIT_OK
+    assert calls == [("https://example.test", "t0ken", "abc", "minor", "production", 30)]
+    assert "cleared for minor" in capsys.readouterr().out
+
+
+def test_gate_held_lists_the_kinds_not_green(monkeypatch, capsys):
+    monkeypatch.setenv("IMMUNIS_TOKEN", "t0ken")
+    _gate_answer(monkeypatch, 200, {"cleared": False, "required": [
+        {"kind": "coverage", "status": "failing", "summary": "coverage 78.1% below 80%"},
+        {"kind": "review", "status": "passing"},
+        {"kind": "migrations", "status": "missing"}], "override": None})
+    assert main(["gate", "--subject", "abc", "--cadence", "change", "--lifecycle", "development",
+                 "--report", "https://example.test"]) == EXIT_FINDINGS
+    err = capsys.readouterr().err
+    assert "2 kind(s) not green" in err
+    assert "coverage: failing — coverage 78.1% below 80%" in err and "migrations: missing" in err
+    assert "review" not in err
+
+
+def test_gate_unknown_subject_or_unreachable_holds_with_two(monkeypatch, capsys):
+    monkeypatch.setenv("IMMUNIS_TOKEN", "t0ken")
+    _gate_answer(monkeypatch, 404, {"error": "unknown-subject", "detail": "nothing has been scanned for this subject"})
+    assert main(["gate", "--subject", "abc", "--cadence", "change", "--report", "https://example.test"]) == EXIT_ERROR
+    assert "nothing has been scanned" in capsys.readouterr().err
+    _gate_answer(monkeypatch, None, None, "could not reach https://example.test/api/v1/gate")
+    assert main(["gate", "--subject", "abc", "--cadence", "change", "--report", "https://example.test"]) == EXIT_ERROR
+    assert "could not reach" in capsys.readouterr().err
+
+
+def test_ask_gate_builds_the_query_and_never_raises(monkeypatch):
+    import urllib.request
+    from immunis.report import ask_gate
+    seen = {}
+
+    class Resp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b'{"cleared": true, "required": []}'
+
+    def fake_open(request, timeout):
+        seen["url"] = request.full_url
+        seen["auth"] = request.get_header("Authorization")
+        seen["timeout"] = timeout
+        return Resp()
+    monkeypatch.setattr(urllib.request, "urlopen", fake_open)
+    status, body, _ = ask_gate("https://c.example/", "tok", "abc", "minor", lifecycle="development", wait=20)
+    assert (status, body) == (200, {"cleared": True, "required": []})
+    assert seen["url"] == "https://c.example/api/v1/gate?subject=abc&cadence=minor&lifecycle=development&wait=20"
+    assert seen["auth"] == "Bearer tok" and seen["timeout"] > 20
+
+    def down(request, timeout):
+        raise urllib.error.URLError("refused")
+    import urllib.error
+    monkeypatch.setattr(urllib.request, "urlopen", down)
+    status, body, text = ask_gate("https://c.example", "tok", "abc", "minor")
+    assert status is None and body is None and "could not reach" in text and "?" not in text
